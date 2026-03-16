@@ -14,6 +14,13 @@ struct SidebarURLDisplay: View {
     @State private var showCopiedAnimation = false
     @State private var startWheelAnimation = false
 
+    private func openLauncher() {
+        if let tab = tabManager.activeTab {
+            appState.launcherSearchText = tab.url.absoluteString
+        }
+        appState.showLauncher = true
+    }
+
     private func triggerCopy(_ text: String) {
         ClipboardUtils.triggerCopy(
             text,
@@ -94,18 +101,22 @@ struct SidebarURLDisplay: View {
         .padding(.vertical, 7)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .contentShape(Rectangle())
-        .onTapGesture {
-            if let tab = tabManager.activeTab {
-                appState.launcherSearchText = tab.url.absoluteString
-            }
-            appState.showLauncher = true
-        }
+        .onTapGesture { openLauncher() }
         .onHover { hovering in
             isHovering = hovering
         }
         .background(
             ConditionallyConcentricRectangle(cornerRadius: 10, style: .continuous)
                 .fill(theme.invertedSolidWindowBackgroundColor.opacity(isHovering ? 0.11 : 0.07))
+        )
+        .overlay(
+            Button("") { openLauncher() }
+                .oraShortcut(KeyboardShortcuts.Address.focus)
+                .opacity(0)
+                .allowsHitTesting(false)
+                .disabled(
+                    !toolbarManager.isToolbarHidden || sidebarManager.sidebarPosition != .primary
+                )
         )
         .overlay(
             ConditionallyConcentricRectangle(cornerRadius: 10, style: .continuous)
