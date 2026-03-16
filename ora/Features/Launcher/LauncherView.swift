@@ -100,6 +100,10 @@ struct LauncherView: View {
             .onAppear {
                 isVisible = true
                 isTextFieldFocused = true
+                if !appState.launcherSearchText.isEmpty {
+                    input = appState.launcherSearchText
+                    appState.launcherSearchText = ""
+                }
                 viewModel.searchEngineService.setTheme(theme)
                 viewModel.configure(
                     tabManager: tabManager,
@@ -107,7 +111,10 @@ struct LauncherView: View {
                     downloadManager: downloadManager,
                     appState: appState,
                     privacyMode: privacyMode,
-                    onSubmit: onSubmit
+                    onSubmit: onSubmit,
+                    onDismiss: { [weak appState] in
+                        appState?.showLauncher = false
+                    }
                 )
                 mouseHasMoved = false
                 mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { event in
