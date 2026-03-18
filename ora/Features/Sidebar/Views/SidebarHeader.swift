@@ -18,7 +18,7 @@ struct SidebarHeader: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            if sidebarManager.sidebarPosition != .secondary {
+            if sidebarManager.sidebarPosition != .secondary, !appState.isFullscreen {
                 WindowControls(isFullscreen: appState.isFullscreen)
                     .frame(height: 30)
             }
@@ -83,10 +83,9 @@ struct SidebarHeader: View {
                         .oraShortcutHelp("Toggle Sidebar", for: KeyboardShortcuts.App.toggleSidebar)
                     }
                 }
-                .padding(.trailing, 6)
-                .padding(.leading, sidebarManager.sidebarPosition == .primary ? 0 : 6)
             }
         }
+        .padding(.horizontal, 18)
         .frame(height: 38)
     }
 }

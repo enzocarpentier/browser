@@ -61,7 +61,7 @@ struct DownloadsHistoryView: View {
                 .onHover { isClearHovered = $0 }
             }
         }
-        .padding(.trailing, 12)
+        .padding(.horizontal, 18)
         .frame(height: 38)
     }
 

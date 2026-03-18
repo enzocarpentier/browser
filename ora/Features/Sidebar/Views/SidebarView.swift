@@ -152,6 +152,8 @@ struct SidebarView: View {
         VStack(alignment: .leading, spacing: 0) {
             if sidebarManager.sidebarPosition == .secondary, !toolbarManager.isToolbarHidden {
                 Spacer().frame(height: 8)
+            } else if appState.isFullscreen, !toolbarManager.isToolbarHidden {
+                Spacer().frame(height: 8)
             } else {
                 SidebarHeader()
             }
