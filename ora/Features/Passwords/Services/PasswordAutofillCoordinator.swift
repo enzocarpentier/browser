@@ -1,6 +1,5 @@
 import AppKit
 import Foundation
-import WebKit
 
 enum PasswordFormAction: String, Codable {
     case login
@@ -211,8 +210,6 @@ final class PasswordAutofillCoordinator {
             }
 
             await MainActor.run {
-                guard let webView = self.tab?.webView else { return }
-
                 let request = PasswordFillRequest(
                     usernameFieldID: overlay.focus.usernameFieldID,
                     passwordFieldIDs: overlay.focus.passwordFieldIDs,
@@ -222,7 +219,7 @@ final class PasswordAutofillCoordinator {
                     submitAfterFill: overlay.focus.action == .login && self.settings.passwordAutofillSubmitEnabled
                 )
 
-                self.evaluate(scriptMethod: "fillCredentials", payload: request, in: webView)
+                self.evaluate(scriptMethod: "fillCredentials", payload: request)
                 self.passwordManager.markUsed(entry)
                 self.dismissOverlay()
             }
@@ -234,7 +231,7 @@ final class PasswordAutofillCoordinator {
             return
         }
 
-        guard let webView = tab?.webView else {
+        guard tab?.browserPage != nil else {
             return
         }
 
@@ -247,7 +244,7 @@ final class PasswordAutofillCoordinator {
             submitAfterFill: false
         )
 
-        evaluate(scriptMethod: "fillCredentials", payload: request, in: webView)
+        evaluate(scriptMethod: "fillCredentials", payload: request)
         dismissOverlay()
     }
 
@@ -256,7 +253,7 @@ final class PasswordAutofillCoordinator {
             return
         }
 
-        guard let webView = tab?.webView else {
+        guard tab?.browserPage != nil else {
             return
         }
 
@@ -269,7 +266,7 @@ final class PasswordAutofillCoordinator {
             submitAfterFill: false
         )
 
-        evaluate(scriptMethod: "fillCredentials", payload: request, in: webView)
+        evaluate(scriptMethod: "fillCredentials", payload: request)
         dismissOverlay()
     }
 
@@ -299,8 +296,8 @@ final class PasswordAutofillCoordinator {
 
         let suggestions = Self.resolveSuggestions(
             for: focus,
-            matchingEntries: passwordManager.matchingEntries(for: pageURL),
-            emailSuggestions: passwordManager.emailSuggestions(),
+            matchingEntries: passwordManager.matchingEntries(for: pageURL, containerID: tab?.container.id),
+            emailSuggestions: passwordManager.emailSuggestions(for: tab?.container.id),
             generatedPassword: focus.action == .createAccount ? passwordManager.generateStrongPassword() : nil
         )
 
@@ -373,7 +370,7 @@ final class PasswordAutofillCoordinator {
         }
 
         let matchingEntry = passwordManager
-            .matchingEntries(for: pageURL)
+            .matchingEntries(for: pageURL, containerID: tab?.container.id)
             .first { $0.username == trimmedUsername }
 
         if let matchingEntry,
@@ -394,7 +391,8 @@ final class PasswordAutofillCoordinator {
             _ = try? self.passwordManager.upsertCredential(
                 for: pageURL,
                 username: trimmedUsername,
-                password: trimmedPassword
+                password: trimmedPassword,
+                containerID: self.tab?.container.id
             )
         }
 
@@ -438,7 +436,7 @@ final class PasswordAutofillCoordinator {
 
     @MainActor
     private func presentationWindow() -> NSWindow? {
-        if let window = tab?.webView.window {
+        if let window = tab?.pageWindow {
             return window
         }
 
@@ -494,7 +492,7 @@ final class PasswordAutofillCoordinator {
         )
     }
 
-    private func evaluate(scriptMethod: String, payload: some Encodable, in webView: WKWebView) {
+    private func evaluate(scriptMethod: String, payload: some Encodable) {
         guard let data = try? JSONEncoder().encode(payload),
               let payloadString = String(data: data, encoding: .utf8)
         else {
@@ -506,12 +504,12 @@ final class PasswordAutofillCoordinator {
             window.__oraPasswordManager.\(scriptMethod)(\(payloadString));
         }
         """
-        webView.evaluateJavaScript(script)
+        tab?.evaluateJavaScript(script)
     }
 
     private func setOverlayKeyboardActive(_ isActive: Bool) {
-        guard let webView = tab?.webView else { return }
-        evaluate(scriptMethod: "setOverlayKeyboardActive", payload: isActive, in: webView)
+        guard tab?.browserPage != nil else { return }
+        evaluate(scriptMethod: "setOverlayKeyboardActive", payload: isActive)
     }
 
     private func handleKeyCommand(_ command: PasswordAutofillKeyCommand) {

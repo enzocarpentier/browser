@@ -1,10 +1,42 @@
 import SwiftData
 import SwiftUI
-import WebKit
 
 // MARK: - Tab Manager
 
+private struct ClosedTabSnapshot {
+    let id: UUID
+    let containerID: UUID
+    let url: URL
+    let savedURL: URL?
+    let title: String
+    let favicon: URL?
+    let faviconLocalFile: URL?
+    let createdAt: Date
+    let lastAccessedAt: Date?
+    let type: TabType
+    let order: Int
+    let backgroundColorHex: String
+    let isPrivate: Bool
+
+    init(tab: Tab) {
+        id = tab.id
+        containerID = tab.container.id
+        url = tab.url
+        savedURL = tab.savedURL
+        title = tab.title
+        favicon = tab.favicon
+        faviconLocalFile = tab.faviconLocalFile
+        createdAt = tab.createdAt
+        lastAccessedAt = tab.lastAccessedAt
+        type = tab.type
+        order = tab.order
+        backgroundColorHex = tab.backgroundColorHex
+        isPrivate = tab.isPrivate
+    }
+}
+
 @MainActor
+// swiftlint:disable:next type_body_length
 class TabManager: ObservableObject {
     @Published var activeContainer: TabContainer?
     @Published var activeTab: Tab?
@@ -20,19 +52,14 @@ class TabManager: ObservableObject {
         )
     }
 
-    var tabsToRender: [Tab] {
-        guard let container = activeContainer else { return [] }
-        let specialTabs = container.tabs.filter { $0.type == .pinned || $0.type == .fav || $0.isPlayingMedia }
-        let combined = Set(recentTabs + specialTabs)
-        return Array(combined)
-    }
-
     /// Note: Could be made injectable via init parameter if preferred
     let tabSearchingService: TabSearchingProviding
 
     @Query(sort: \TabContainer.lastAccessedAt, order: .reverse) var containers: [TabContainer]
 
     private var cleanupTimer: Timer?
+    private var recentlyClosedTabs: [ClosedTabSnapshot] = []
+    private let maxRecentlyClosedTabs = 5
 
     init(
         modelContainer: ModelContainer,
@@ -153,7 +180,39 @@ class TabManager: ObservableObject {
     }
 
     func deleteContainer(_ container: TabContainer) {
-        modelContext.delete(container)
+        let containerId = container.id
+        Task { @MainActor in
+            try PasswordManagerService.shared.deleteEntries(for: containerId)
+
+            await PrivacyService.clearAllWebsiteData(for: containerId)
+
+            guard let persistedContainer = fetchContainer(id: containerId) else {
+                SettingsStore.shared.removeContainerSettings(for: containerId)
+                return
+            }
+
+            let wasActiveContainer = activeContainer?.id == containerId
+            prepareForContainerDeletion(isActiveContainer: wasActiveContainer)
+            deleteContainerContents(persistedContainer, containerId: containerId)
+
+            // Save child deletions before deleting the container.
+            // In practice, SwiftData can fail when the parent and children are
+            // removed in the same save pass while non-optional inverse
+            // relationships still exist.
+            try? modelContext.save()
+
+            guard let containerToDelete = fetchContainer(id: containerId) else {
+                SettingsStore.shared.removeContainerSettings(for: containerId)
+                activateFallbackContainerIfNeeded(afterDeletingActiveContainer: wasActiveContainer)
+                return
+            }
+
+            modelContext.delete(containerToDelete)
+            try? modelContext.save()
+            SettingsStore.shared.removeContainerSettings(for: containerId)
+
+            activateFallbackContainerIfNeeded(afterDeletingActiveContainer: wasActiveContainer)
+        }
     }
 
     func activateContainer(_ container: TabContainer, activateLastAccessedTab: Bool = true) {
@@ -231,6 +290,7 @@ class TabManager: ObservableObject {
         return newTab
     }
 
+    @discardableResult
     func openTab(
         url: URL,
         historyManager: HistoryManager,
@@ -295,7 +355,7 @@ class TabManager: ObservableObject {
         try? modelContext.save()
     }
 
-    func closeTab(tab: Tab) {
+    func closeTab(tab: Tab, shouldTrackForRestore: Bool = true) {
         // If the closed tab was active, select another tab
         if self.activeTab?.id == tab.id {
             if let nextTab = tab.container.tabs
@@ -325,6 +385,9 @@ class TabManager: ObservableObject {
                     isPrivate: tab.isPrivate
                 )
         }
+        if shouldTrackForRestore, tab.type == .normal {
+            trackRecentlyClosedTab(tab)
+        }
         tab.stopMedia { [weak self] in
             DispatchQueue.main.async {
                 guard let self else { return }
@@ -350,15 +413,39 @@ class TabManager: ObservableObject {
     }
 
     func restoreLastTab() {
-        guard let undoManager = modelContext.undoManager else { return }
-        undoManager.undo() // Reverts the last deletion
-        try? modelContext.save() // Persist the undo operation
+        guard let snapshot = recentlyClosedTabs.popLast() else { return }
+        let container = fetchContainers()
+            .first(where: { $0.id == snapshot.containerID }) ?? activeContainer ?? createContainer()
+
+        shiftRestoredTabOrders(in: container, restoring: snapshot)
+
+        let restoredTab = Tab(
+            id: snapshot.id,
+            url: snapshot.url,
+            title: snapshot.title,
+            favicon: snapshot.favicon,
+            container: container,
+            type: snapshot.type,
+            order: snapshot.order,
+            tabManager: self,
+            isPrivate: snapshot.isPrivate
+        )
+        restoredTab.savedURL = snapshot.savedURL
+        restoredTab.faviconLocalFile = snapshot.faviconLocalFile
+        restoredTab.createdAt = snapshot.createdAt
+        restoredTab.lastAccessedAt = snapshot.lastAccessedAt
+        restoredTab.backgroundColorHex = snapshot.backgroundColorHex
+
+        modelContext.insert(restoredTab)
+        container.tabs.append(restoredTab)
+        activateTab(restoredTab)
+        try? modelContext.save()
     }
 
     func togglePiP(_ currentTab: Tab?, _ oldTab: Tab?) {
         if currentTab?.id != oldTab?.id, SettingsStore.shared.autoPiPEnabled {
-            currentTab?.webView.evaluateJavaScript("window.__oraTriggerPiP(true)")
-            oldTab?.webView.evaluateJavaScript("window.__oraTriggerPiP()")
+            currentTab?.evaluateJavaScript("window.__oraTriggerPiP(true)")
+            oldTab?.evaluateJavaScript("window.__oraTriggerPiP()")
         }
     }
 
@@ -422,7 +509,7 @@ class TabManager: ObservableObject {
                    !tab.isPlayingMedia,
                    tab.type == .normal
                 {
-                    closeTab(tab: tab)
+                    closeTab(tab: tab, shouldTrackForRestore: false)
                 }
             }
         }
@@ -519,23 +606,6 @@ class TabManager: ObservableObject {
         return []
     }
 
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        if message.name == "listener",
-           let url = message.body as? String
-        {
-            // You can update the active tab's url if needed
-            DispatchQueue.main.async {
-                if let validURL = URL(string: url) {
-                    self.activeTab?.url = validURL
-                } else if let fallbackURL = self.activeTab?.url {
-                    self.activeTab?.url = fallbackURL
-                } else if let blankURL = URL(string: "about:blank") {
-                    self.activeTab?.url = blankURL
-                }
-            }
-        }
-    }
-
     func duplicateTab(_ tab: Tab) {
         // Create a new tab using the existing openTab method
         guard let historyManager = tab.historyManager else { return }
@@ -549,87 +619,79 @@ class TabManager: ObservableObject {
         ) else { return }
         self.reorderTabs(from: tab, toTab: newTab)
     }
-}
 
-// MARK: - Tab Searching Providing
-
-protocol TabSearchingProviding {
-    func search(
-        _ text: String,
-        activeContainer: TabContainer?,
-        modelContext: ModelContext
-    ) -> [Tab]
-}
-
-// MARK: - Tab Searching Service
-
-final class TabSearchingService: TabSearchingProviding {
-    func search(
-        _ text: String,
-        activeContainer: TabContainer? = nil,
-        modelContext: ModelContext
-    ) -> [Tab] {
-        let activeContainerId = activeContainer?.id ?? UUID()
-        let trimmedText = text.trimmingCharacters(in: .whitespaces)
-
-        let predicate: Predicate<Tab>
-        if trimmedText.isEmpty {
-            predicate = #Predicate { _ in true }
-        } else {
-            predicate = #Predicate { tab in
-                (
-                    tab.urlString.localizedStandardContains(trimmedText) ||
-                        tab.title
-                        .localizedStandardContains(
-                            trimmedText
-                        )
-                ) && tab.container.id == activeContainerId
-            }
+    private func trackRecentlyClosedTab(_ tab: Tab) {
+        recentlyClosedTabs.append(ClosedTabSnapshot(tab: tab))
+        if recentlyClosedTabs.count > maxRecentlyClosedTabs {
+            recentlyClosedTabs.removeFirst(recentlyClosedTabs.count - maxRecentlyClosedTabs)
         }
+    }
 
-        let descriptor = FetchDescriptor<Tab>(predicate: predicate)
+    private func shiftRestoredTabOrders(in container: TabContainer, restoring snapshot: ClosedTabSnapshot) {
+        for tab in container.tabs where tab.type == snapshot.type && tab.order >= snapshot.order {
+            tab.order += 1
+        }
+    }
+}
+
+private extension TabManager {
+    func fetchContainer(id: UUID) -> TabContainer? {
+        let descriptor = FetchDescriptor<TabContainer>(
+            predicate: #Predicate { $0.id == id }
+        )
 
         do {
-            let results = try modelContext.fetch(descriptor)
-            let now = Date()
+            return try modelContext.fetch(descriptor).first
+        } catch {
+            return nil
+        }
+    }
 
-            return results.sorted { result1, result2 in
-                let result1Score = combinedScore(for: result1, query: trimmedText, now: now)
-                let result2Score = combinedScore(for: result2, query: trimmedText, now: now)
-                return result1Score > result2Score
+    func prepareForContainerDeletion(isActiveContainer: Bool) {
+        guard isActiveContainer else { return }
+
+        activeTab?.maybeIsActive = false
+        activeTab = nil
+        activeContainer = nil
+    }
+
+    func deleteContainerContents(_ container: TabContainer, containerId: UUID) {
+        for tab in Array(container.tabs) {
+            if tab.isWebViewReady {
+                tab.destroyWebView()
             }
+            mediaController.removeSession(for: tab.id)
+            modelContext.delete(tab)
+        }
 
+        for folder in Array(container.folders) {
+            modelContext.delete(folder)
+        }
+
+        for history in fetchHistory(for: containerId) {
+            modelContext.delete(history)
+        }
+    }
+
+    func activateFallbackContainerIfNeeded(afterDeletingActiveContainer wasActiveContainer: Bool) {
+        guard wasActiveContainer else { return }
+
+        if let nextContainer = fetchContainers().first {
+            activateContainer(nextContainer)
+        } else {
+            _ = createContainer()
+        }
+    }
+
+    func fetchHistory(for containerId: UUID) -> [History] {
+        let descriptor = FetchDescriptor<History>(
+            predicate: #Predicate { $0.container?.id == containerId }
+        )
+
+        do {
+            return try modelContext.fetch(descriptor)
         } catch {
             return []
         }
-    }
-
-    private func combinedScore(for tab: Tab, query: String, now: Date) -> Double {
-        let match = scoreMatch(tab, text: query)
-
-        let timeInterval: TimeInterval = if let accessedAt = tab.lastAccessedAt {
-            now.timeIntervalSince(accessedAt)
-        } else {
-            1_000_000 // far in the past → lowest recency
-        }
-
-        let recencyBoost = max(0, 1_000_000 - timeInterval)
-        return Double(match * 1000) + recencyBoost
-    }
-
-    private func scoreMatch(_ tab: Tab, text: String) -> Int {
-        let text = text.lowercased()
-        let title = tab.title.lowercased()
-        let url = tab.urlString.lowercased()
-
-        func score(_ field: String) -> Int {
-            if field == text { return 100 }
-            if field.hasPrefix(text) { return 90 }
-            if field.contains(text) { return 75 }
-            if text.contains(field) { return 50 }
-            return 0
-        }
-
-        return max(score(title), score(url))
     }
 }

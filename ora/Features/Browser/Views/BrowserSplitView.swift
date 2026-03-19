@@ -5,6 +5,7 @@ struct BrowserSplitView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var toolbarManager: ToolbarManager
     @EnvironmentObject var sidebarManager: SidebarManager
+    @EnvironmentObject var toastManager: ToastManager
 
     private var targetSide: SplitSide {
         sidebarManager.sidebarPosition == .primary ? .primary : .secondary
@@ -74,24 +75,18 @@ struct BrowserSplitView: View {
         }
     }
 
-    @ViewBuilder
     private func contentView() -> some View {
-        if tabManager.activeTab == nil {
-            BrowserContentContainer {
-                HomeView()
-            }
-        }
-        ZStack {
-            let activeId = tabManager.activeTab?.id
-            ForEach(tabManager.tabsToRender) { tab in
-                if tab.isWebViewReady {
-                    BrowserContentContainer {
-                        BrowserWebContentView(tab: tab)
-                    }
-                    .opacity(tab.id == activeId ? 1 : 0)
-                    .allowsHitTesting(tab.id == activeId)
+        Group {
+            if let activeTab = tabManager.activeTab {
+                BrowserContentContainer {
+                    BrowserWebContentView(tab: activeTab)
+                }
+            } else {
+                BrowserContentContainer {
+                    HomeView()
                 }
             }
         }
+        .toast(manager: toastManager)
     }
 }

@@ -97,6 +97,9 @@ APP_PATH="$EXPORT_PATH/Ora.app"
 echo "Copying exported app bundle..."
 ditto "$APP_PATH" "build/Ora.app"
 
+echo "Verifying exported app signature..."
+codesign --verify --deep --strict --verbose=4 "build/Ora.app" >/dev/null || die "App signature verification failed after export."
+
 # --- Sign ---
 
 step "Signing & packaging"

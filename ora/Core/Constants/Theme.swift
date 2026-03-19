@@ -14,7 +14,7 @@ struct Theme: Equatable {
     }
 
     var accent: Color {
-        Color(hex: "#FF5F57")
+        colorScheme == .dark ? Color(hex: "#FF9B51") : Color(hex: "#F16D34")
     }
 
     var background: Color {
@@ -66,7 +66,7 @@ struct Theme: Equatable {
     }
 
     var launcherMainBackground: Color {
-        colorScheme == .dark ? Color(.windowBackgroundColor).opacity(0.7) : .white.opacity(0.8)
+        colorScheme == .dark ? self.popoverBackground.opacity(0.75) : .white.opacity(0.8)
     }
 
     var placeholder: Color {

@@ -62,6 +62,7 @@ class AppState: ObservableObject {
     @Published var showFinderIn: UUID?
     @Published var isFloatingTabSwitchVisible: Bool = false
     @Published var isFullscreen: Bool = false
+    @Published var isURLBarEditing: Bool = false
 }
 
 @main
@@ -95,7 +96,7 @@ struct OraApp: App {
 
         WindowGroup("Settings", id: "settings") {
             if let sharedModelContainer {
-                SettingsContentView()
+                SettingsWindowRoot()
                     .environmentObject(AppearanceManager.shared)
                     .environmentObject(UpdateService.shared)
                     .environmentObject(DefaultBrowserManager.shared)

@@ -1,5 +1,6 @@
 # Xcode
 *.xcodeproj
+*.pbxproj
 *.xcuserstate
 *.xcuserdatad/
 *.xcworkspace
@@ -96,4 +97,4 @@ codesign*
 # !build/appcast.xml
 # !build/dsa_pub.pem
 
-Vendor/
+Vendor/CEF

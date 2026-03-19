@@ -23,6 +23,7 @@ struct OraButton: View {
     var keyboardShortcut: String?
     var leadingIcon: String?
     var trailingIcon: String?
+    var labelColorOverride: Color?
     let action: () -> Void
 
     @Environment(\.theme) private var theme
@@ -84,7 +85,7 @@ struct OraButton: View {
         guard !isDisabled else { return theme.disabledBackground }
         switch variant {
         case .default:
-            return isHovering ? theme.foreground.opacity(0.85) : theme.foreground
+            return isHovering ? theme.accent.opacity(0.85) : theme.accent
         case .secondary:
             return isHovering ? theme.mutedBackground.opacity(0.5) : theme.mutedBackground.opacity(0.8)
         case .outline, .ghost:
@@ -96,13 +97,12 @@ struct OraButton: View {
 
     private var labelColor: Color {
         guard !isDisabled else { return theme.disabledForeground }
+        if let override = labelColorOverride { return override }
         switch variant {
-        case .default:
-            return theme.background
+        case .default, .destructive:
+            return .white
         case .secondary, .outline, .ghost:
             return theme.foreground
-        case .destructive:
-            return .white
         }
     }
 
@@ -123,10 +123,12 @@ struct OraButton: View {
 
                 Text(label)
                     .font(.system(size: fontSize, weight: .medium))
+                    .foregroundColor(labelColor)
 
                 if let icon = trailingIcon {
                     Image(systemName: icon)
                         .font(.system(size: fontSize - 1, weight: .medium))
+                        .foregroundColor(labelColor)
                 }
 
                 if let shortcut = keyboardShortcut {
@@ -147,9 +149,9 @@ struct OraButton: View {
                     .padding(.horizontal, isSystemIcon || shortcut.count == 1 ? 0 : 4)
                     .background(labelColor.opacity(variant == .default || variant == .destructive ? 0.15 : 0.07))
                     .cornerRadius(4)
+                    .foregroundColor(labelColor)
                 }
             }
-            .foregroundColor(labelColor)
             .padding(.horizontal, hPadding)
             .padding(.vertical, vPadding)
             .background(backgroundColor)

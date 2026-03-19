@@ -1,6 +1,5 @@
 import Combine
 import SwiftUI
-import WebKit
 
 struct TabSnapshot {
     let image: NSImage
@@ -16,6 +15,8 @@ struct FloatingTabSwitcher: View {
     @FocusState private var focusedTab: Tab.ID?
     @State private var tabSnapshots: [Tab: TabSnapshot] = [:]
     @State private var isLoadingSnapshots = false
+    @State private var mouseHasMoved = false
+    @State private var mouseMonitor: Any?
 
     // MARK: - Constants
 
@@ -41,6 +42,10 @@ struct FloatingTabSwitcher: View {
                 let to = recentTabs.count == 1 ? 0 : 1
                 focusedTab = recentTabs[to].id
             }
+            startMouseMonitor()
+        }
+        .onDisappear {
+            stopMouseMonitor()
         }
         .onChange(of: appState.isFloatingTabSwitchVisible) { _, isVisible in
             if isVisible {
@@ -49,6 +54,9 @@ struct FloatingTabSwitcher: View {
                     let to = recentTabs.count == 1 ? 0 : 1
                     focusedTab = recentTabs[to].id
                 }
+                startMouseMonitor()
+            } else {
+                stopMouseMonitor()
             }
         }
         .onChange(of: keyModifierListener.modifierFlags) { _, newFlags in
@@ -91,12 +99,12 @@ struct FloatingTabSwitcher: View {
                 }
             }
         }
-        .padding(.horizontal, 28)
-        .padding(.vertical, 20)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
         .background(BlurEffectView(material: .popover, blendingMode: .withinWindow))
         .background(theme.background.opacity(0.3))
         .cornerRadius(Constants.containerCornerRadius)
-        .shadow(color: .blue.opacity(0.07), radius: 16, x: 0, y: 12)
+        .shadow(color: theme.primary.opacity(0.07), radius: 16, x: 0, y: 12)
         .background(keyboardHandler)
         .overlay(containerBorder)
     }
@@ -129,7 +137,7 @@ struct FloatingTabSwitcher: View {
         .frame(width: Constants.previewWidth, alignment: .leading)
         .padding(.horizontal, 4)
         .onHover { isHovered in
-            if isHovered {
+            if isHovered, mouseHasMoved {
                 focusedTab = tab.id
             }
         }
@@ -285,7 +293,7 @@ struct FloatingTabSwitcher: View {
         for tab in recentTabs {
             guard tab.isWebViewReady else { continue }
 
-            let currentURL = tab.webView.url?.absoluteString ?? ""
+            let currentURL = tab.currentPageURL?.absoluteString ?? ""
 
             if let existingSnapshot = tabSnapshots[tab],
                existingSnapshot.url == currentURL
@@ -307,7 +315,7 @@ struct FloatingTabSwitcher: View {
             let config = self.createSnapshotConfiguration(for: tab)
 
             DispatchQueue.main.async {
-                tab.webView.takeSnapshot(with: config) { image, _ in
+                tab.takeSnapshot(configuration: config) { image, _ in
                     defer { group.leave() }
 
                     guard let cgImage = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
@@ -324,11 +332,27 @@ struct FloatingTabSwitcher: View {
         }
     }
 
-    private func createSnapshotConfiguration(for tab: Tab) -> WKSnapshotConfiguration {
-        let config = WKSnapshotConfiguration()
-        config.afterScreenUpdates = false
-        // Don't force a specific width - let the webview determine natural size
-        return config
+    private func createSnapshotConfiguration(for tab: Tab) -> BrowserSnapshotConfiguration {
+        BrowserSnapshotConfiguration(rect: nil, afterScreenUpdates: false)
+    }
+
+    private func startMouseMonitor() {
+        mouseHasMoved = false
+        mouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .mouseMoved) { event in
+            mouseHasMoved = true
+            if let monitor = mouseMonitor {
+                NSEvent.removeMonitor(monitor)
+                mouseMonitor = nil
+            }
+            return event
+        }
+    }
+
+    private func stopMouseMonitor() {
+        if let monitor = mouseMonitor {
+            NSEvent.removeMonitor(monitor)
+            mouseMonitor = nil
+        }
     }
 
     private func closeFloatingTabSwitch() {

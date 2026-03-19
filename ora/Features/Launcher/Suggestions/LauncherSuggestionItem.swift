@@ -1,69 +1,34 @@
 import SwiftUI
 
-enum LauncherSuggestionType {
-    case openedTab, suggestedQuery, suggestedLink, aiChat
-}
-
-struct LauncherSuggestion: Identifiable {
-    let id = UUID()
-    let type: LauncherSuggestionType
-    let title: String
-    let name: String?
-    let url: URL?
-    let icon: String?
-    let faviconURL: URL?
-    let faviconLocalFile: URL?
-    let action: () -> Void
-
-    init(
-        type: LauncherSuggestionType,
-        title: String,
-        name: String? = nil,
-        url: URL? = nil,
-        icon: String? = nil,
-        faviconURL: URL? = nil,
-        faviconLocalFile: URL? = nil,
-        action: @escaping () -> Void
-    ) {
-        self.type = type
-        self.title = title
-        self.name = name
-        self.url = url
-        self.icon = icon
-        self.faviconURL = faviconURL
-        self.faviconLocalFile = faviconLocalFile
-        self.action = action
-    }
-}
-
 struct LauncherSuggestionItem: View {
     let suggestion: LauncherSuggestion
-    let defaultAI: SearchEngine?
     @Binding var focusedElement: UUID
 
     @State private var isHovered = false
     @Environment(\.theme) private var theme
+    @Environment(\.launcherMouseHasMoved) private var mouseHasMoved
     @EnvironmentObject var appState: AppState
-    @EnvironmentObject var toolbarManager: ToolbarManager
-
-    init(suggestion: LauncherSuggestion, defaultAI: SearchEngine?, focusedElement: Binding<UUID>) {
-        self.suggestion = suggestion
-        self.defaultAI = defaultAI
-        self._focusedElement = focusedElement
-    }
 
     private var isAIChat: Bool {
         suggestion.type == .aiChat
     }
 
     private var shouldShowURL: Bool {
-        suggestion.url != nil && !isAIChat && suggestion.type != .suggestedQuery && suggestion.type != .openedTab
+        guard let url = suggestion.url else { return false }
+        if isAIChat || suggestion.type == .suggestedQuery || suggestion.type == .openedTab { return false }
+        let urlString = url.absoluteString
+        if suggestion.title == urlString || urlString.hasSuffix("://\(suggestion.title)") || urlString
+            .hasSuffix("://\(suggestion.title)/")
+        { return false }
+        return true
+    }
+
+    private var isFocusedOrHovered: Bool {
+        focusedElement == suggestion.id || isHovered
     }
 
     private var foregroundColor: Color {
-        if focusedElement == suggestion.id || isHovered, isAIChat {
-            return defaultAI?.foregroundColor ?? .secondary
-        } else if focusedElement == suggestion.id {
+        if focusedElement == suggestion.id {
             return theme.foreground
         }
         return .secondary
@@ -105,27 +70,22 @@ struct LauncherSuggestionItem: View {
     var actionLabel: some View {
         if isAIChat {
             HStack(alignment: .center, spacing: 10) {
-                Text("Ask \(suggestion.name ?? defaultAI?.name ?? "")  ↩")
+                Text("Ask \(suggestion.name ?? "")  ↩")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(
-                        focusedElement == suggestion.id || isHovered
-                            ? defaultAI?.foregroundColor ?? .secondary : .secondary
+                        isFocusedOrHovered ? theme.foreground : .secondary
                     )
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(
-                focusedElement == suggestion.id || isHovered
-                    ? defaultAI?.foregroundColor?.opacity(0.10) ?? .clear : theme.foreground.opacity(0.07)
-            )
-            .cornerRadius(6)
+            .background(theme.foreground.opacity(0.07))
+            .clipShape(ConditionallyConcentricRectangle(cornerRadius: 8, style: .continuous))
         } else if suggestion.type == .openedTab {
             HStack(alignment: .center, spacing: 8) {
                 Text("Switch to tab ")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(
-                        focusedElement == suggestion.id || isHovered
-                            ? theme.foreground : .secondary
+                        isFocusedOrHovered ? theme.foreground : .secondary
                     )
 
                 Image(systemName: "arrow.right")
@@ -133,21 +93,17 @@ struct LauncherSuggestionItem: View {
                     .frame(width: 12, height: 12)
                     .padding(6)
                     .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        ConditionallyConcentricRectangle(cornerRadius: 8, style: .continuous)
                             .fill(
-                                focusedElement == suggestion.id || isHovered
+                                isFocusedOrHovered
                                     ? theme.foreground : theme.foreground.opacity(0.07)
                             )
                     )
                     .foregroundStyle(
-                        focusedElement == suggestion.id || isHovered
-                            ? theme.background : .secondary
+                        isFocusedOrHovered ? theme.background : .secondary
                     )
             }
-            // .padding(.horizontal, 8)
-            // .padding(.vertical, 4)
-            // .background(theme.foreground.opacity(0.07))
-            .cornerRadius(6)
+            .clipShape(ConditionallyConcentricRectangle(cornerRadius: 8, style: .continuous))
         }
     }
 
@@ -165,7 +121,6 @@ struct LauncherSuggestionItem: View {
                     Text(" — \(suggestion.url?.absoluteString ?? "")")
                         .font(.system(size: 13))
                         .foregroundStyle(Color(.secondaryLabelColor))
-                        .frame(width: 250, alignment: .leading)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -175,18 +130,20 @@ struct LauncherSuggestionItem: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 10)
-        .frame(width: 798, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(backgroundColor)
-        .cornerRadius(8)
+        .clipShape(ConditionallyConcentricRectangle(cornerRadius: 12, style: .continuous))
         .onTapGesture {
             suggestion.action()
-            appState.showLauncher = false
+            DispatchQueue.main.async {
+                appState.showLauncher = false
+                appState.isURLBarEditing = false
+            }
         }
         .onHover { hover in
-            if hover {
+            if hover, mouseHasMoved {
                 focusedElement = suggestion.id
             }
         }
-//        .focused($focusedElement, equals: suggestion.id)
     }
 }

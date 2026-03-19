@@ -18,7 +18,7 @@ struct SidebarHeader: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            if sidebarManager.sidebarPosition != .secondary {
+            if sidebarManager.sidebarPosition != .secondary, !appState.isFullscreen {
                 WindowControls(isFullscreen: appState.isFullscreen)
                     .frame(height: 30)
             }
@@ -38,7 +38,7 @@ struct SidebarHeader: View {
 
                     URLBarButton(
                         systemName: "chevron.left",
-                        isEnabled: tabManager.activeTab?.webView.canGoBack ?? false,
+                        isEnabled: tabManager.activeTab?.canGoBack ?? false,
                         foregroundColor: theme.foreground.opacity(0.7),
                         action: {
                             if let activeTab = tabManager.activeTab {
@@ -50,7 +50,7 @@ struct SidebarHeader: View {
 
                     URLBarButton(
                         systemName: "chevron.right",
-                        isEnabled: tabManager.activeTab?.webView.canGoForward ?? false,
+                        isEnabled: tabManager.activeTab?.canGoForward ?? false,
                         foregroundColor: theme.foreground.opacity(0.7),
                         action: {
                             if let activeTab = tabManager.activeTab {
@@ -66,7 +66,7 @@ struct SidebarHeader: View {
                         foregroundColor: theme.foreground.opacity(0.7),
                         action: {
                             if let activeTab = tabManager.activeTab {
-                                activeTab.webView.reload()
+                                activeTab.reload()
                             }
                         }
                     )
@@ -83,10 +83,9 @@ struct SidebarHeader: View {
                         .oraShortcutHelp("Toggle Sidebar", for: KeyboardShortcuts.App.toggleSidebar)
                     }
                 }
-                .padding(.trailing, 6)
-                .padding(.leading, sidebarManager.sidebarPosition == .primary ? 0 : 6)
             }
         }
+        .padding(.horizontal, 18)
         .frame(height: 38)
     }
 }

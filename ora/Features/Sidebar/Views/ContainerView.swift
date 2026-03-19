@@ -9,22 +9,15 @@ struct ContainerView: View {
     @EnvironmentObject var toolbarManager: ToolbarManager
     @EnvironmentObject var tabManager: TabManager
     @EnvironmentObject var privacyMode: PrivacyMode
+    @EnvironmentObject var toastManager: ToastManager
 
     @State var isDragging = false
     @State private var draggedItem: UUID?
-    @State private var editingURLString: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if toolbarManager.isToolbarHidden, let tab = tabManager.activeTab {
-                SidebarURLDisplay(
-                    tab: tab,
-                    editingURLString: $editingURLString
-                )
-                .transition(.asymmetric(
-                    insertion: .push(from: .top).combined(with: .opacity),
-                    removal: .push(from: .bottom).combined(with: .opacity)
-                ))
+            if toolbarManager.isToolbarHidden {
+                SidebarURLDisplay()
             }
             if !privacyMode.isPrivate {
                 FavTabsGrid(
@@ -140,6 +133,10 @@ struct ContainerView: View {
                 tab,
                 toContainer: newContainer
             )
+        toastManager.show(
+            "Moved to \(newContainer.emoji) \(newContainer.name)",
+            icon: .system("arrow.right.arrow.left")
+        )
     }
 
     private func dragTab(_ tabId: UUID) -> NSItemProvider {

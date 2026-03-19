@@ -1,21 +1,24 @@
 import SwiftUI
 
 struct FloatingSidebarOverlay: View {
+    static let minFraction: CGFloat = 0.16
+    static let maxFraction: CGFloat = 0.30
+
     @EnvironmentObject private var sidebarManager: SidebarManager
 
     @Binding var showFloatingSidebar: Bool
     @Binding var isMouseOverSidebar: Bool
 
     var sidebarFraction: FractionHolder
-    let isDownloadsPopoverOpen: Bool
+    let isDownloadsOpen: Bool
 
     @State private var dragFraction: CGFloat?
 
     var body: some View {
         GeometryReader { geo in
             let totalWidth = geo.size.width
-            let minFraction: CGFloat = 0.16
-            let maxFraction: CGFloat = 0.30
+            let minFraction = Self.minFraction
+            let maxFraction = Self.maxFraction
             let currentFraction = dragFraction ?? sidebarFraction.value
             let clampedFraction = min(max(currentFraction, minFraction), maxFraction)
             let floatingWidth = max(0, min(totalWidth * clampedFraction, totalWidth))
@@ -62,7 +65,7 @@ struct FloatingSidebarOverlay: View {
                         get: { showFloatingSidebar },
                         set: { newValue in
                             isMouseOverSidebar = newValue
-                            if !newValue, isDownloadsPopoverOpen {
+                            if !newValue, isDownloadsOpen {
                                 return
                             }
                             showFloatingSidebar = newValue
